@@ -2,9 +2,7 @@ name: Daily GPS Sensor Report
 
 on:
   schedule:
-    - cron: '0 16 * * *'   # 00:00 UTC+8 = 16:00 UTC previous day
-    - cron: '10 7 * * *'    # 15:00 UTC+8 = 07:00 UTC
-  workflow_dispatch:  # Allow manual triggering
+    - cron: '18 * * * *'   # 00:00 UTC+8 = 16:00 UTC previous day
   push:
     branches: 
       - main
