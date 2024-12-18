@@ -2,7 +2,7 @@ name: Daily GPS Sensor Report
 
 on:
   schedule:
-    - cron: '0 9 * * *'   # 00:00 UTC+8 = 16:00 UTC previous day
+    - cron: '0 1 * * *'   # 00:00 UTC+8 = 16:00 UTC previous day
   push:
     branches: 
       - main
