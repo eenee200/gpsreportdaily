@@ -41,3 +41,4 @@ jobs:
         RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
       run: |
         python scripts/gps_sensor_report.py
+        python scripts/gpsdoor_report.py
