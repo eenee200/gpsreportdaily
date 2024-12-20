@@ -22,7 +22,8 @@ CONFIG = {
 }
 def get_nearest_temperatures(timestamp, temp_data, target_hours=[10, 12, 15], time_threshold=60):
     """
-    Find nearest temperature readings for specified hours relative to a given timestamp
+    Find nearest temperature readings for specified hours relative to a given timestamp.
+    If no reading found within threshold, returns the closest previous temperature reading.
     """
     date = timestamp.date()
     result = {}
@@ -33,17 +34,33 @@ def get_nearest_temperatures(timestamp, temp_data, target_hours=[10, 12, 15], ti
         if reading['timestamp'].date() == date
     ]
     
+    # Sort readings by timestamp
+    same_date_readings.sort(key=lambda x: x['timestamp'])
+    
     for target_hour in target_hours:
         # Create target timestamp for comparison
         target_time = datetime.combine(date, datetime.min.time().replace(hour=target_hour))
         
-        # Find nearest temperature reading
+        # First try to find reading within threshold
         nearest_temp = next(
             (reading['temperature'] for reading in same_date_readings
             if abs((reading['timestamp'] - target_time).total_seconds()) < time_threshold),
-            0  # Return 0 if no reading found within threshold
+            None
         )
         
+        # If no reading found within threshold, find the closest previous reading
+        if nearest_temp is None:
+            previous_readings = [
+                reading for reading in same_date_readings
+                if reading['timestamp'] < target_time
+            ]
+            
+            if previous_readings:
+                # Get the most recent previous reading
+                nearest_temp = previous_readings[-1]['temperature']
+            else:
+                nearest_temp = 0  # No previous readings found
+                
         result[target_hour] = nearest_temp
     
     return result
