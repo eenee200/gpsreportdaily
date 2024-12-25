@@ -9,6 +9,7 @@ from email.mime.text import MIMENonMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from datetime import datetime, timedelta
+RECEIVER_EMAILS="eeneeamidral@gmail.com,uuganbileg@tttools.mn"
 
 # Configuration (Replace with your actual details)
 CONFIG = {
@@ -16,7 +17,7 @@ CONFIG = {
     'GPS_DEVICE_ID': os.environ.get('GPS_DEVICE_ID'),
     'SENDER_EMAIL': os.environ.get('SENDER_EMAIL'),
     'SENDER_PASSWORD': os.environ.get('SENDER_PASSWORD'),
-    'RECEIVER_EMAILS': os.environ.get('RECEIVER_EMAILS', '').split(','),
+    'RECEIVER_EMAILS': RECEIVER_EMAILS.split(','),
     'REPORT_FREQUENCY_DAYS': 1
 }
 
