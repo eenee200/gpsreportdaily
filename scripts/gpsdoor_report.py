@@ -10,6 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Border, Side, Alignment, Font, PatternFill
 from openpyxl.formatting.rule import FormulaRule
 import requests
+RECEIVER_EMAILS="eeneeamidral@gmail.com,uuganbileg@tttools.mn"
 
 # Configuration (Replace with your actual details)
 CONFIG = {
@@ -17,7 +18,7 @@ CONFIG = {
     'GPS_DEVICE_ID': os.environ.get('GPS_DEVICE_ID'),
     'SENDER_EMAIL': os.environ.get('SENDER_EMAIL'),
     'SENDER_PASSWORD': os.environ.get('SENDER_PASSWORD'),
-    'RECEIVER_EMAILS': os.environ.get('RECEIVER_EMAILS', '').split(','),
+    'RECEIVER_EMAILS': RECEIVER_EMAILS.split(','),
     'REPORT_FREQUENCY_DAYS': 1
 }
 def get_nearest_temperatures(timestamp, temp_data, target_hours=[10, 12, 15], time_threshold=60):
