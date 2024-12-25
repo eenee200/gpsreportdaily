@@ -17,7 +17,7 @@ CONFIG = {
     'GPS_DEVICE_ID': os.environ.get('GPS_DEVICE_ID'),
     'SENDER_EMAIL': os.environ.get('SENDER_EMAIL'),
     'SENDER_PASSWORD': os.environ.get('SENDER_PASSWORD'),
-    'RECEIVER_EMAIL': os.environ.get('RECEIVER_EMAIL'),
+    'RECEIVER_EMAILS': os.environ.get('RECEIVER_EMAILS', '').split(','),
     'REPORT_FREQUENCY_DAYS': 1
 }
 def get_nearest_temperatures(timestamp, temp_data, target_hours=[10, 12, 15], time_threshold=60):
@@ -319,31 +319,62 @@ def export_to_excel(storage_temps, bag_temps, door_events, plate_numbers,
     workbook.save(output_file)
     return output_file
 
-def send_email_with_attachment(sender_email, sender_password, receiver_email, 
+def send_email_with_attachment(sender_email, sender_password, receiver_emails, 
                              subject, message, attachment_path):
     """
-    Send email with Excel report attachment
+    Send email with Excel report attachment to multiple recipients
+    
+    Parameters:
+    -----------
+    sender_email : str
+        Email address of the sender
+    sender_password : str
+        Password for the sender's email account
+    receiver_emails : list or str
+        List of recipient email addresses or a single email address
+    subject : str
+        Subject of the email
+    message : str
+        Body of the email
+    attachment_path : str
+        Path to the file to be attached
     """
+    # Convert single email to list if necessary
+    if isinstance(receiver_emails, str):
+        receiver_emails = [receiver_emails]
+    
+    # Remove any empty strings and whitespace
+    receiver_emails = [email.strip() for email in receiver_emails if email.strip()]
+    
+    if not receiver_emails:
+        print("No valid receiver emails provided")
+        return False
+    
     try:
+        # Create the email message
         email_message = MIMEMultipart()
         email_message['From'] = sender_email
-        email_message['To'] = receiver_email
+        email_message['To'] = ', '.join(receiver_emails)  # Join all recipients with commas
         email_message['Subject'] = subject
         
+        # Attach the message body
         email_message.attach(MIMEText(message, 'plain'))
         
+        # Attach the file
         with open(attachment_path, 'rb') as file:
             part = MIMEApplication(file.read(), Name=os.path.basename(attachment_path))
             part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
             email_message.attach(part)
         
+        # Send the email
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(sender_email, sender_password)
             server.send_message(email_message)
         
-        print(f"Email sent successfully to {receiver_email}")
+        print(f"Email sent successfully to: {', '.join(receiver_emails)}")
         return True
+    
     except Exception as e:
         print(f"Error sending email: {e}")
         return False
@@ -384,11 +415,11 @@ def main():
         sensor_data['plate_numbers']
     )
     
-    # Send email
+    # Send email to all recipients
     send_email_with_attachment(
         CONFIG['SENDER_EMAIL'],
         CONFIG['SENDER_PASSWORD'],
-        CONFIG['RECEIVER_EMAIL'],
+        CONFIG['RECEIVER_EMAILS'],
         f"Temperature Analysis Report - {end_date}",
         f"Attached is the temperature analysis report from {start_date} to {end_date}.",
         report_file
