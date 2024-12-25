@@ -16,7 +16,7 @@ CONFIG = {
     'GPS_DEVICE_ID': os.environ.get('GPS_DEVICE_ID'),
     'SENDER_EMAIL': os.environ.get('SENDER_EMAIL'),
     'SENDER_PASSWORD': os.environ.get('SENDER_PASSWORD'),
-    'RECEIVER_EMAILS': os.environ.get('RECEIVER_EMAILS').split(','),
+    'RECEIVER_EMAILS': os.environ.get('RECEIVER_EMAILS', '').split(',')
     'REPORT_FREQUENCY_DAYS': 1
 }
 
