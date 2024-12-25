@@ -16,7 +16,7 @@ CONFIG = {
     'GPS_DEVICE_ID': os.environ.get('GPS_DEVICE_ID'),
     'SENDER_EMAIL': os.environ.get('SENDER_EMAIL'),
     'SENDER_PASSWORD': os.environ.get('SENDER_PASSWORD'),
-    'RECEIVER_EMAIL': os.environ.get('RECEIVER_EMAIL'),
+    'RECEIVER_EMAILS': os.environ.get('RECEIVER_EMAILS', '').split(','),
     'REPORT_FREQUENCY_DAYS': 1
 }
 
@@ -268,23 +268,34 @@ def export_to_excel(refrigerator_temp_data, humidity_data,
     workbook.save(output_file)
     return output_file
 
-def send_email_with_attachment(sender_email, sender_password, receiver_email, 
-                                subject, message, attachment_path):
+def send_email_with_attachment(sender_email, sender_password, receiver_emails, 
+                             subject, message, attachment_path):
     """
-    Send an email with an Excel file attachment.
+    Send an email with an Excel file attachment to multiple recipients.
     
     :param sender_email: Sender's email address
     :param sender_password: Sender's email password
-    :param receiver_email: Recipient's email address
+    :param receiver_emails: List of recipient email addresses or a single email address
     :param subject: Email subject
     :param message: Email body text
     :param attachment_path: Path to the Excel file to attach
     """
+    # Convert single email to list if necessary
+    if isinstance(receiver_emails, str):
+        receiver_emails = [receiver_emails]
+    
+    # Remove any empty strings and whitespace
+    receiver_emails = [email.strip() for email in receiver_emails if email.strip()]
+    
+    if not receiver_emails:
+        print("No valid receiver emails provided")
+        return False
+    
     try:
         # Create email message
         email_message = MIMEMultipart()
         email_message['From'] = sender_email
-        email_message['To'] = receiver_email
+        email_message['To'] = ', '.join(receiver_emails)  # Join all recipients with commas
         email_message['Subject'] = subject
 
         # Attach message body
@@ -302,7 +313,7 @@ def send_email_with_attachment(sender_email, sender_password, receiver_email,
             server.login(sender_email, sender_password)
             server.send_message(email_message)
         
-        print(f"Email sent successfully to {receiver_email}")
+        print(f"Email sent successfully to: {', '.join(receiver_emails)}")
         return True
     except Exception as e:
         print(f"Error sending email: {e}")
@@ -312,11 +323,18 @@ def main():
     """
     Main function to automate GPS sensor data report generation and email.
     """
-    required_keys = ['GPS_API_KEY', 'GPS_DEVICE_ID', 'SENDER_EMAIL', 'SENDER_PASSWORD', 'RECEIVER_EMAIL']
+    # Update required keys to check for RECEIVER_EMAILS instead of RECEIVER_EMAIL
+    required_keys = ['GPS_API_KEY', 'GPS_DEVICE_ID', 'SENDER_EMAIL', 'SENDER_PASSWORD', 'RECEIVER_EMAILS']
     for key in required_keys:
         if not CONFIG[key]:
             print(f"Error: {key} environment variable is not set.")
             sys.exit(1)
+
+    # Additional check for empty receiver emails list
+    if not any(CONFIG['RECEIVER_EMAILS']):
+        print("Error: No valid receiver email addresses provided.")
+        sys.exit(1)
+    
     # Determine date range with 8-hour subtraction
     end_date = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0) - timedelta(days=1)
     start_date = (end_date - timedelta(days=1)).strftime('%Y-%m-%d %H:%M')
@@ -357,11 +375,11 @@ def main():
         sensor_data['plate_numbers']
     )
     
-    # Send email with report
+    # Send email with report to all recipients
     send_email_with_attachment(
         CONFIG['SENDER_EMAIL'], 
         CONFIG['SENDER_PASSWORD'], 
-        CONFIG['RECEIVER_EMAIL'], 
+        CONFIG['RECEIVER_EMAILS'], 
         f"GPS Sensor Report - {end_date}", 
         f"Attached is the GPS sensor report from {start_date} to {end_date}.", 
         report_file
@@ -369,9 +387,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# Additional dependencies for requirements.txt
-# pandas
-# requests
-# openpyxl
-# smtplib
