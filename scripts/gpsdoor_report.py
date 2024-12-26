@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Border, Side, Alignment, Font, PatternFill
 from openpyxl.formatting.rule import FormulaRule
 import requests
-RECEIVER_EMAILS="eeneeamidral@gmail.com,uuganbileg@tttools.mn"
+RECEIVER_EMAILS="uuganbileg@tttools.mn,undrakh.b@monospharmatrade.mn,anuerdene.b@monospharmatrade.mn,ayurzana.s@monospharmatrade.mn,munkhtamir.b@monospharmatrade.mn,baatarkhuu@monospharmatrade.mn,ariuntungalag@monospharmatrade.mn,narmandakh.b@monospharmatrade.mn"
 
 # Configuration (Replace with your actual details)
 CONFIG = {
