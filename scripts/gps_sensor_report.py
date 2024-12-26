@@ -9,7 +9,7 @@ from email.mime.text import MIMENonMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from datetime import datetime, timedelta
-RECEIVER_EMAILS="eeneeamidral@gmail.com,uuganbileg@tttools.mn"
+RECEIVER_EMAILS="uuganbileg@tttools.mn,undrakh.b@monospharmatrade.mn,anuerdene.b@monospharmatrade.mn,ayurzana.s@monospharmatrade.mn,munkhtamir.b@monospharmatrade.mn,baatarkhuu@monospharmatrade.mn,ariuntungalag@monospharmatrade.mn,narmandakh.b@monospharmatrade.mn"
 
 # Configuration (Replace with your actual details)
 CONFIG = {
