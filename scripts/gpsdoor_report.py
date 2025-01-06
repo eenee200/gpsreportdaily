@@ -10,12 +10,17 @@ from openpyxl import Workbook
 from openpyxl.styles import Border, Side, Alignment, Font, PatternFill
 from openpyxl.formatting.rule import FormulaRule
 import requests
-RECEIVER_EMAILS="uuganbileg@tttools.mn,undrakh.b@monospharmatrade.mn,anuerdene.b@monospharmatrade.mn,ayurzana.s@monospharmatrade.mn,munkhtamir.b@monospharmatrade.mn,baatarkhuu@monospharmatrade.mn,ariuntungalag@monospharmatrade.mn,narmandakh.b@monospharmatrade.mn"
+RECEIVER_EMAILS="uuganbileg@tttools.mn,lhagvabayar.a@monospharmatrade.mn,undrakh.b@monospharmatrade.mn,anuerdene.b@monospharmatrade.mn,ayurzana.s@monospharmatrade.mn,munkhtamir.b@monospharmatrade.mn,baatarkhuu@monospharmatrade.mn,ariuntungalag@monospharmatrade.mn,narmandakh.b@monospharmatrade.mn"
 
 # Configuration (Replace with your actual details)
 CONFIG = {
     'GPS_API_KEY': os.environ.get('GPS_API_KEY'),
-    'GPS_DEVICE_ID': os.environ.get('GPS_DEVICE_ID'),
+    'VEHICLES': {
+        '866069064383431': '7228УКР',
+        '866069068945011': '7107УБГ',
+        '866069068899358': '6461УНЯ',
+        '866069068751245': '2514УАС'
+    },
     'SENDER_EMAIL': os.environ.get('SENDER_EMAIL'),
     'SENDER_PASSWORD': os.environ.get('SENDER_PASSWORD'),
     'RECEIVER_EMAILS': RECEIVER_EMAILS.split(','),
@@ -66,29 +71,24 @@ def get_nearest_temperatures(timestamp, temp_data, target_hours=[10, 12, 15], ti
     
     return result
 
-def parse_gps_temp_door(json_data):
+def parse_gps_temp_door(json_data, plate_number):
     """
     Parse GPS tracking data to extract bag temperature, storage temperature, and door status.
-    
-    :param json_data: List of GPS tracking entries
-    :return: Dictionary with parsed sensor data
+    Now includes specific plate number for the vehicle.
     """
     sensor_data = {
-        'storage_temp': [],  # io10800 Темп тэвш
-        'bag_temp': [],      # io10801 Цүнх Темп
-        'door': [],          # io10808 Хаалга
-        'plate_numbers': []
+        'storage_temp': [],
+        'bag_temp': [],
+        'door': [],
+        'plate_number': plate_number
     }
     
     last_valid_storage_temp = 0
     last_valid_bag_temp = 0
     
     for entry in json_data:
-        # Extract timestamp and plate number
         timestamp = datetime.strptime(entry[0], '%Y-%m-%d %H:%M:%S') + timedelta(hours=8)
-        plate_number = entry[3]
         
-        # Extract storage temperature (io10800)
         if 'io10800' in entry[6]:
             storage_temp = float(entry[6]['io10800']) / 100
             if storage_temp == 250:
@@ -100,7 +100,6 @@ def parse_gps_temp_door(json_data):
                 'temperature': storage_temp
             })
         
-        # Extract bag temperature (io10801)
         if 'io10801' in entry[6]:
             bag_temp = float(entry[6]['io10801']) / 100
             if bag_temp == 250:
@@ -112,17 +111,12 @@ def parse_gps_temp_door(json_data):
                 'temperature': bag_temp
             })
         
-        # Extract door status (io10808)
         if 'io10808' in entry[6]:
             door_status = 1 if float(entry[6]['io10808']) == 250 else 0
             sensor_data['door'].append([
                 int(timestamp.timestamp() * 1000),
                 door_status
             ])
-        
-        # Collect unique plate numbers
-        plate_number = "7228УКР"
-        sensor_data['plate_numbers'].append(plate_number)
     
     return sensor_data
 
@@ -193,16 +187,14 @@ def process_door_events(door_data, storage_temp_data, bag_temp_data):
     
     return daily_door_events
 
-def export_to_excel(storage_temps, bag_temps, door_events, plate_numbers, 
-                   output_file='temperature_analysis.xlsx'):
+def export_to_excel(vehicles_data, output_file='temperature_analysis.xlsx'):
     """
-    Export analyzed data to Excel with improved formatting and row grouping
+    Export analyzed data to Excel with support for multiple vehicles
     """
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Temperature Analysis"
     
-    # Headers
     headers_1 = [
         'Plate Number', 'Date',
         'Storage Temp 10:00', 'Storage Temp 12:00', 'Storage Temp 15:00',
@@ -223,74 +215,79 @@ def export_to_excel(storage_temps, bag_temps, door_events, plate_numbers,
                    top=Side(style='thin'), bottom=Side(style='thin'))
     alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
     
-    # Data population
-    first_plate_number = plate_numbers[0] if plate_numbers else 'N/A'
-    is_first_date = True
-    door_event_index = 0
-    start_row = 2  # First data row
+    start_row = 2
+    total_events = 0
     
-    all_dates = sorted(set(storage_temps.keys()) | set(bag_temps.keys()) | set(door_events.keys()))
+    # Calculate total events across all vehicles
+    for vehicle_data in vehicles_data:
+        for date_events in vehicle_data['door_events'].values():
+            total_events += len(date_events)
     
-    for date in all_dates:
-        storage_data = storage_temps.get(date, {})
-        bag_data = bag_temps.get(date, {})
-        daily_events = door_events.get(date, [])
+    # Process each vehicle's data
+    for vehicle_data in vehicles_data:
+        plate_number = vehicle_data['plate_number']
+        storage_temps = vehicle_data['storage_temps']
+        bag_temps = vehicle_data['bag_temps']
+        door_events = vehicle_data['door_events']
         
-        # Base row with temperature data
-        base_row = [
-            first_plate_number if is_first_date else '',
-            date.strftime('%Y/%m/%d'),
-            storage_data.get(10, 0), storage_data.get(12, 0), storage_data.get(15, 0),
-            bag_data.get(10, 0), bag_data.get(12, 0), bag_data.get(15, 0),
-        ]
+        is_first_date = True
+        all_dates = sorted(set(storage_temps.keys()) | set(bag_temps.keys()) | set(door_events.keys()))
         
-        if daily_events:
-            # First event for the day
-            first_event = daily_events[0]
-            row = base_row + [
-                len(daily_events),
-                sum(len(events) for events in door_events.values()) if is_first_date else '',
-                first_event['activation_time'].strftime('%H:%M:%S'),
-                first_event['activation_storage_temp'],
-                first_event['activation_bag_temp'],
-                first_event['deactivation_time'].strftime('%H:%M:%S'),
-                first_event['deactivation_storage_temp'],
-                first_event['deactivation_bag_temp'],
-                str(first_event['duration'])
-            ]
-            sheet.append(row)
+        for date in all_dates:
+            storage_data = storage_temps.get(date, {})
+            bag_data = bag_temps.get(date, {})
+            daily_events = door_events.get(date, [])
             
-            # Additional events for the day (grouped and hidden)
-            for event in daily_events[1:]:
-                row = [''] * 8 + [  # Empty cells for temperature data
-                    '',  # Daily events count
-                    '',  # Total events
-                    event['activation_time'].strftime('%H:%M:%S'),
-                    event['activation_storage_temp'],
-                    event['activation_bag_temp'],
-                    event['deactivation_time'].strftime('%H:%M:%S'),
-                    event['deactivation_storage_temp'],
-                    event['deactivation_bag_temp'],
-                    str(event['duration'])
+            base_row = [
+                plate_number if is_first_date else '',
+                date.strftime('%Y/%m/%d'),
+                storage_data.get(10, 0), storage_data.get(12, 0), storage_data.get(15, 0),
+                bag_data.get(10, 0), bag_data.get(12, 0), bag_data.get(15, 0),
+            ]
+            
+            if daily_events:
+                first_event = daily_events[0]
+                row = base_row + [
+                    len(daily_events),
+                    total_events if is_first_date else '',
+                    first_event['activation_time'].strftime('%H:%M:%S'),
+                    first_event['activation_storage_temp'],
+                    first_event['activation_bag_temp'],
+                    first_event['deactivation_time'].strftime('%H:%M:%S'),
+                    first_event['deactivation_storage_temp'],
+                    first_event['deactivation_bag_temp'],
+                    str(first_event['duration'])
                 ]
                 sheet.append(row)
-            
-            # Group rows for this date's events
-            if len(daily_events) > 1:
-                end_row = sheet.max_row
-                sheet.row_dimensions.group(start_row + 1, end_row, outline_level=1, hidden=True)
-                start_row = end_row + 1
+                
+                for event in daily_events[1:]:
+                    row = [''] * 8 + [
+                        '',
+                        '',
+                        event['activation_time'].strftime('%H:%M:%S'),
+                        event['activation_storage_temp'],
+                        event['activation_bag_temp'],
+                        event['deactivation_time'].strftime('%H:%M:%S'),
+                        event['deactivation_storage_temp'],
+                        event['deactivation_bag_temp'],
+                        str(event['duration'])
+                    ]
+                    sheet.append(row)
+                
+                if len(daily_events) > 1:
+                    end_row = sheet.max_row
+                    sheet.row_dimensions.group(start_row + 1, end_row, outline_level=1, hidden=True)
+                    start_row = end_row + 1
+                else:
+                    start_row += 1
             else:
+                row = base_row + ['0', '', '', '', '', '', '', '', '']
+                sheet.append(row)
                 start_row += 1
-        else:
-            # No events for this day
-            row = base_row + ['0', '', '', '', '', '', '', '', '']
-            sheet.append(row)
-            start_row += 1
-        
-        is_first_date = False
+            
+            is_first_date = False
     
-    # Apply formatting
+    # Apply formatting and styling
     for row in sheet.iter_rows(min_row=1, max_row=sheet.max_row, min_col=1, max_col=len(headers_1) + len(headers_2)):
         for cell in row:
             cell.border = border
@@ -319,7 +316,6 @@ def export_to_excel(storage_temps, bag_temps, door_events, plate_numbers,
     
     workbook.save(output_file)
     return output_file
-
 def send_email_with_attachment(sender_email, sender_password, receiver_emails, 
                              subject, message, attachment_path):
     """
@@ -382,49 +378,54 @@ def send_email_with_attachment(sender_email, sender_password, receiver_emails,
 
 def main():
     """
-    Main function to process temperature data and generate report
+    Main function to process temperature data for multiple vehicles and generate report
     """
-    # Set time range
     end_date = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0) - timedelta(days=1)
     start_date = (end_date - timedelta(days=1)).strftime('%Y-%m-%d %H:%M')
-    end_date = end_date.strftime('%Y-%m-%d %H:%M')
+    end_date_str = end_date.strftime('%Y-%m-%d %H:%M')
     
-    # Construct API URL and fetch data
-    api_url = f"https://fms2.gpsbox.mn/api/api.php?api=user&key={CONFIG['GPS_API_KEY']}&cmd=OBJECT_GET_MESSAGES,{CONFIG['GPS_DEVICE_ID']},{start_date},{end_date},0.01"
+    vehicles_data = []
     
-    try:
-        response = requests.get(api_url)
-        json_data = response.json()
-    except Exception as e:
-        print(f"Error fetching GPS data: {e}")
-        return
+    # Process each vehicle
+    for device_id, plate_number in CONFIG['VEHICLES'].items():
+        api_url = f"https://fms2.gpsbox.mn/api/api.php?api=user&key={CONFIG['GPS_API_KEY']}&cmd=OBJECT_GET_MESSAGES,{device_id},{start_date},{end_date_str},0.01"
+        
+        try:
+            response = requests.get(api_url)
+            json_data = response.json()
+            
+            # Parse and process data for this vehicle
+            sensor_data = parse_gps_temp_door(json_data, plate_number)
+            
+            vehicle_data = {
+                'plate_number': plate_number,
+                'storage_temps': process_temperature_data(sensor_data['storage_temp']),
+                'bag_temps': process_temperature_data(sensor_data['bag_temp']),
+                'door_events': process_door_events(sensor_data['door'], 
+                                                sensor_data['storage_temp'],
+                                                sensor_data['bag_temp'])
+            }
+            
+            vehicles_data.append(vehicle_data)
+            
+        except Exception as e:
+            print(f"Error processing vehicle {plate_number} (ID: {device_id}): {e}")
     
-    # Parse and process data
-    sensor_data = parse_gps_temp_door(json_data)
-    
-    storage_temps = process_temperature_data(sensor_data['storage_temp'])
-    bag_temps = process_temperature_data(sensor_data['bag_temp'])
-    door_events = process_door_events(sensor_data['door'], 
-                                    sensor_data['storage_temp'],
-                                    sensor_data['bag_temp'])
-    
-    # Generate Excel report
-    report_file = export_to_excel(
-        storage_temps,
-        bag_temps,
-        door_events,
-        sensor_data['plate_numbers']
-    )
-    
-    # Send email to all recipients
-    send_email_with_attachment(
-        CONFIG['SENDER_EMAIL'],
-        CONFIG['SENDER_PASSWORD'],
-        CONFIG['RECEIVER_EMAILS'],
-        f"Temperature Analysis Report - {end_date}",
-        f"Attached is the temperature analysis report from {start_date} to {end_date}.",
-        report_file
-    )
+    if vehicles_data:
+        # Generate Excel report
+        report_file = export_to_excel(vehicles_data)
+        
+        # Send email
+        send_email_with_attachment(
+            CONFIG['SENDER_EMAIL'],
+            CONFIG['SENDER_PASSWORD'],
+            CONFIG['RECEIVER_EMAILS'],
+            f"Temperature Analysis Report - {end_date_str}",
+            f"Attached is the temperature analysis report for all vehicles from {start_date} to {end_date_str}.",
+            report_file
+        )
+    else:
+        print("No data was processed successfully for any vehicle.")
 
 if __name__ == "__main__":
     main()
