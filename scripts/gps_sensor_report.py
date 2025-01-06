@@ -227,23 +227,25 @@ def export_to_excel(vehicles_data, output_file='gps_sensor_analysis.xlsx'):
 
 
 
-def send_email_with_attachment(sender_email, sender_password, receiver_email, 
-                                subject, message, attachment_path):
+def send_email_with_attachment(sender_email, sender_password, receiver_emails, 
+                             subject, message, attachment_path):
     """
-    Send an email with an Excel file attachment.
+    Send an email with an Excel file attachment to multiple recipients.
     
     :param sender_email: Sender's email address
     :param sender_password: Sender's email password
-    :param receiver_email: Recipient's email address
+    :param receiver_emails: List of recipient email addresses
     :param subject: Email subject
     :param message: Email body text
     :param attachment_path: Path to the Excel file to attach
+    :return: Dictionary with success status for each recipient
     """
+    results = {}
+    
     try:
-        # Create email message
+        # Create email message template
         email_message = MIMEMultipart()
         email_message['From'] = sender_email
-        email_message['To'] = receiver_email
         email_message['Subject'] = subject
 
         # Attach message body
@@ -255,20 +257,32 @@ def send_email_with_attachment(sender_email, sender_password, receiver_email,
             part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
             email_message.attach(part)
 
-        # Send email
+        # Connect to SMTP server
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(sender_email, sender_password)
-            server.send_message(email_message)
+            
+            # Send to each recipient individually
+            for receiver_email in receiver_emails:
+                try:
+                    # Create a new message for each recipient
+                    msg = email_message.copy()
+                    msg['To'] = receiver_email.strip()  # Remove any whitespace
+                    
+                    server.send_message(msg)
+                    print(f"Email sent successfully to {receiver_email}")
+                    results[receiver_email] = True
+                except Exception as e:
+                    print(f"Error sending email to {receiver_email}: {e}")
+                    results[receiver_email] = False
         
-        print(f"Email sent successfully to {receiver_email}")
-        return True
+        return results
     except Exception as e:
-        print(f"Error sending email: {e}")
-        return False
+        print(f"Error in email setup: {e}")
+        return {email: False for email in receiver_emails}
 
 def main():
-    """Main function to process multiple vehicles' data."""
+    """Main function to process multiple vehicles' data and send to multiple recipients."""
     end_date = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0) - timedelta(days=1)
     start_date = (end_date - timedelta(days=1)).strftime('%Y-%m-%d %H:%M')
     end_date = end_date.strftime('%Y-%m-%d %H:%M')
@@ -299,15 +313,21 @@ def main():
     # Generate Excel report
     report_file = export_to_excel(vehicles_data)
     
-    # Send email with report
-    send_email_with_attachment(
+    # Send email with report to multiple recipients
+    results = send_email_with_attachment(
         CONFIG['SENDER_EMAIL'],
         CONFIG['SENDER_PASSWORD'],
-        CONFIG['RECEIVER_EMAIL'],
+        CONFIG['RECEIVER_EMAILS'],
         f"Multi-Vehicle GPS Sensor Report - {end_date}",
         f"Attached is the GPS sensor report for all vehicles from {start_date} to {end_date}.",
         report_file
     )
+    
+    # Print summary of email sending results
+    print("\nEmail Sending Summary:")
+    for email, success in results.items():
+        status = "Success" if success else "Failed"
+        print(f"{email}: {status}")
 
 if __name__ == "__main__":
     main()
