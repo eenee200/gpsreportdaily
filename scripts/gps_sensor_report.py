@@ -9,41 +9,44 @@ from email.mime.text import MIMENonMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from datetime import datetime, timedelta
-RECEIVER_EMAILS="uuganbileg@tttools.mn,undrakh.b@monospharmatrade.mn,anuerdene.b@monospharmatrade.mn,ayurzana.s@monospharmatrade.mn,munkhtamir.b@monospharmatrade.mn,baatarkhuu@monospharmatrade.mn,ariuntungalag@monospharmatrade.mn,narmandakh.b@monospharmatrade.mn"
+RECEIVER_EMAILS="uuganbileg@tttools.mn,lhagvabayar.a@monospharmatrade.mn,undrakh.b@monospharmatrade.mn,anuerdene.b@monospharmatrade.mn,ayurzana.s@monospharmatrade.mn,munkhtamir.b@monospharmatrade.mn,baatarkhuu@monospharmatrade.mn,ariuntungalag@monospharmatrade.mn,narmandakh.b@monospharmatrade.mn"
 
 # Configuration (Replace with your actual details)
 CONFIG = {
     'GPS_API_KEY': os.environ.get('GPS_API_KEY'),
-    'GPS_DEVICE_ID': os.environ.get('GPS_DEVICE_ID'),
     'SENDER_EMAIL': os.environ.get('SENDER_EMAIL'),
     'SENDER_PASSWORD': os.environ.get('SENDER_PASSWORD'),
     'RECEIVER_EMAILS': RECEIVER_EMAILS.split(','),
-    'REPORT_FREQUENCY_DAYS': 1
+    'REPORT_FREQUENCY_DAYS': 1,
+    'VEHICLES': {
+        '866069064383431': '7228УКР',
+        '866069068945011': '7107УБГ',
+        '866069068899358': '6461УНЯ',
+        '866069068751245': '2514УАС'
+    }
 }
 
-def parse_gps_temp_humidity(json_data):
+def parse_gps_temp_humidity(json_data, plate_number):
     """
     Parse GPS tracking data to extract refrigerator temperature and humidity.
     
     :param json_data: List of GPS tracking entries
+    :param plate_number: Vehicle plate number
     :return: Dictionary with parsed sensor data
     """
     sensor_data = {
         'refrigerator_temp': [],
         'humidity': [],
-        'plate_numbers': []
+        'plate_number': plate_number
     }
     last_valid_humidity = 0
     last_valid_temp = 0
     
     for entry in json_data:
-        # Extract timestamp and plate number
         timestamp = datetime.strptime(entry[0], '%Y-%m-%d %H:%M:%S') + timedelta(hours=8)
-        plate_number = entry[3]  # Assuming the plate number is in the 4th column
         
-        # Extract refrigerator temperature
         if 'io10800' in entry[6]:
-            refrigerator_temp = float(entry[6]['io10800']) / 100  # Assuming scaling
+            refrigerator_temp = float(entry[6]['io10800']) / 100
             if refrigerator_temp == 250:
                 refrigerator_temp = last_valid_temp
             else:
@@ -53,9 +56,8 @@ def parse_gps_temp_humidity(json_data):
                 'value': refrigerator_temp
             })
         
-        # Extract humidity
         if 'io10804' in entry[6]:
-            humidity = float(entry[6]['io10804'])  # Direct value
+            humidity = float(entry[6]['io10804'])
             if humidity == 250:
                 humidity = last_valid_humidity
             else:
@@ -64,22 +66,18 @@ def parse_gps_temp_humidity(json_data):
                 'timestamp': timestamp,
                 'value': humidity
             })
-        
-        # Collect unique plate numbers
-        plate_number = "7228УКР"
-        sensor_data['plate_numbers'].append(plate_number)
     
     return sensor_data
 
-def construct_api_url(device_id, start_date, end_date, api_key):
+def fetch_vehicle_data(device_id, start_date, end_date, api_key):
     """
-    Construct GPS tracking API URL.
+    Fetch and process data for a single vehicle.
     
     :param device_id: GPS device identifier
     :param start_date: Start date for data retrieval
     :param end_date: End date for data retrieval
     :param api_key: API authentication key
-    :return: Constructed API URL
+    :return: Processed sensor data for the vehicle
     """
     base_url = "https://fms2.gpsbox.mn/api/api.php"
     params = {
@@ -88,84 +86,48 @@ def construct_api_url(device_id, start_date, end_date, api_key):
         "cmd": f"OBJECT_GET_MESSAGES,{device_id},{start_date} 00:00:00,{end_date} 00:00:00,0.01"
     }
     
-    return f"{base_url}?api={params['api']}&key={params['key']}&cmd={params['cmd']}"
-
-def fetch_gps_data(api_url):
-    """
-    Fetch GPS tracking data from the API.
+    api_url = f"{base_url}?api={params['api']}&key={params['key']}&cmd={params['cmd']}"
     
-    :param api_url: Full API URL with parameters
-    :return: JSON data of GPS tracking entries
-    """
     try:
         response = requests.get(api_url)
         response.raise_for_status()
-        return response.json()
+        json_data = response.json()
+        return parse_gps_temp_humidity(json_data, CONFIG['VEHICLES'][device_id])
     except requests.RequestException as e:
-        print(f"Error fetching GPS data: {e}")
+        print(f"Error fetching GPS data for device {device_id}: {e}")
         return None
 
 def process_sensor_data(sensor_data, interval_minutes=5):
-    """
-    Process sensor data into specified minute intervals.
-    
-    :param sensor_data: List of sensor entries
-    :param interval_minutes: Interval for grouping data
-    :return: Processed data with interval statistics
-    """
-    # Convert to DataFrame
+    """Process sensor data into specified minute intervals."""
     df = pd.DataFrame(sensor_data)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    
-    # Round timestamps to specified interval
     df['interval_timestamp'] = df['timestamp'].dt.floor(f'{interval_minutes}min')
     
-    # Group by interval and calculate statistics
     grouped_data = df.groupby('interval_timestamp').agg({
         'value': ['mean', 'min', 'max', 'count']
     }).reset_index()
     
-    # Flatten column names
     grouped_data.columns = ['timestamp', 'mean', 'min', 'max', 'count']
-    
-    # Convert to list of dictionaries
-    processed_data = grouped_data.to_dict('records')
-    
-    return processed_data
+    return grouped_data.to_dict('records')
 
 def calculate_daily_averages(sensor_data):
-    """
-    Calculate daily averages for sensor data.
-    
-    :param sensor_data: List of processed sensor entries
-    :return: Daily statistics
-    """
-    # Convert to DataFrame
+    """Calculate daily averages for sensor data."""
     df = pd.DataFrame(sensor_data)
-    df['date'] = df['timestamp'].dt.date
+    df['date'] = pd.to_datetime(df['timestamp']).dt.date
     
-    # Calculate daily statistics
     daily_averages = df.groupby('date').agg({
         'mean': ['mean', 'min', 'max']
     }).reset_index()
     
-    # Flatten column names
     daily_averages.columns = ['date', 'average', 'minimum', 'maximum']
     daily_averages['date'] = daily_averages['date'].astype(str)
-    
     return daily_averages.to_dict('records')
 
-def export_to_excel(refrigerator_temp_data, humidity_data, 
-                     refrigerator_temp_daily_avg, humidity_daily_avg, 
-                     plate_numbers, output_file='gps_sensor_analysis.xlsx'):
+def export_to_excel(vehicles_data, output_file='gps_sensor_analysis.xlsx'):
     """
-    Export sensor analysis to Excel.
+    Export multi-vehicle sensor analysis to Excel.
     
-    :param refrigerator_temp_data: 5-minute temperature data
-    :param humidity_data: 5-minute humidity data
-    :param refrigerator_temp_daily_avg: Daily temperature averages
-    :param humidity_daily_avg: Daily humidity averages
-    :param plate_numbers: List of plate numbers
+    :param vehicles_data: Dictionary containing processed data for each vehicle
     :param output_file: Excel file path
     """
     import openpyxl
@@ -173,13 +135,6 @@ def export_to_excel(refrigerator_temp_data, humidity_data,
     
     workbook = openpyxl.Workbook()
     
-    # Create sheets
-    combined_5min_sheet = workbook.active
-    combined_5min_sheet.title = "Combined 5-Minute Data"
-    
-    combined_daily_avg_sheet = workbook.create_sheet(title="Combined Daily Averages")
-    
-    # Prepare border and alignment
     border = Border(
         left=Side(style='thin'),
         right=Side(style='thin'),
@@ -188,115 +143,107 @@ def export_to_excel(refrigerator_temp_data, humidity_data,
     )
     alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
     
-    # Use first plate number or 'N/A'
-    first_plate_number = plate_numbers[0] if plate_numbers else 'N/A'
-    
-    # 5-Minute Data Sheet
-    combined_5min_sheet.append(['Plate Number', 'Timestamp', 'Refrigerator Temp', 'Humidity'])
-    
-    # Find the longest data list
-    max_length = max(len(refrigerator_temp_data), len(humidity_data))
-
-    is_first_date = True
-    
-    # Merge temperature and humidity 5-minute data
-    for i in range(max_length):
-        temp_value = round(refrigerator_temp_data[i]['mean'], 2) if i < len(refrigerator_temp_data) else None
-        humidity_value = round(humidity_data[i]['mean'], 2) if i < len(humidity_data) else None
-        timestamp = (refrigerator_temp_data[i]['timestamp'] if i < len(refrigerator_temp_data) 
-                     else humidity_data[i]['timestamp'])
+    # Create 5-minute data sheets for each vehicle
+    for vehicle_id, data in vehicles_data.items():
+        sheet_name = f"{data['plate_number']}_5min"
+        if len(sheet_name) > 31:  # Excel sheet name length limitation
+            sheet_name = sheet_name[:31]
         
-        row = [
-            first_plate_number if is_first_date else '' , 
-            timestamp,
-            temp_value,
-            humidity_value
-        ]
-        combined_5min_sheet.append(row)
-        is_first_date = False
+        sheet = workbook.create_sheet(title=sheet_name)
+        
+        # Headers
+        sheet.append(['Plate Number', 'Timestamp', 'Refrigerator Temp', 'Humidity'])
+        
+        # Combine temperature and humidity data
+        temp_data = data['refrigerator_temp']
+        humidity_data = data['humidity']
+        max_length = max(len(temp_data), len(humidity_data))
+        
+        for i in range(max_length):
+            temp_value = round(temp_data[i]['mean'], 2) if i < len(temp_data) else None
+            humidity_value = round(humidity_data[i]['mean'], 2) if i < len(humidity_data) else None
+            timestamp = (temp_data[i]['timestamp'] if i < len(temp_data) 
+                        else humidity_data[i]['timestamp'])
+            
+            sheet.append([
+                data['plate_number'] if i == 0 else '',
+                timestamp,
+                temp_value,
+                humidity_value
+            ])
     
-    # Daily Average Sheet
-    combined_daily_avg_sheet.append([
-        'Date', 
+    # Create daily averages sheet
+    daily_avg_sheet = workbook.create_sheet(title="Daily_Averages")
+    daily_avg_sheet.append([
+        'Plate Number',
+        'Date',
         'Refrigerator Temp Avg', 'Refrigerator Temp Min', 'Refrigerator Temp Max',
         'Humidity Avg', 'Humidity Min', 'Humidity Max'
     ])
     
-    # Find the longest daily average list
-    max_daily_length = max(len(refrigerator_temp_daily_avg), len(humidity_daily_avg))
-    
-    # Merge temperature and humidity daily averages
-    for i in range(max_daily_length):
-        # Temperature daily average data
-        temp_date = refrigerator_temp_daily_avg[i]['date'] if i < len(refrigerator_temp_daily_avg) else None
-        temp_avg = round(refrigerator_temp_daily_avg[i]['average'], 2) if i < len(refrigerator_temp_daily_avg) else None
-        temp_min = round(refrigerator_temp_daily_avg[i]['minimum'], 2) if i < len(refrigerator_temp_daily_avg) else None
-        temp_max = round(refrigerator_temp_daily_avg[i]['maximum'], 2) if i < len(refrigerator_temp_daily_avg) else None
+    # Add daily averages for each vehicle
+    for vehicle_id, data in vehicles_data.items():
+        temp_daily = calculate_daily_averages(data['refrigerator_temp'])
+        humidity_daily = calculate_daily_averages(data['humidity'])
         
-        # Humidity daily average data
-        humidity_avg = round(humidity_daily_avg[i]['average'], 2) if i < len(humidity_daily_avg) else None
-        humidity_min = round(humidity_daily_avg[i]['minimum'], 2) if i < len(humidity_daily_avg) else None
-        humidity_max = round(humidity_daily_avg[i]['maximum'], 2) if i < len(humidity_daily_avg) else None
-        
-        row = [
-            temp_date,
-            temp_avg, temp_min, temp_max,
-            humidity_avg, humidity_min, humidity_max
-        ]
-        combined_daily_avg_sheet.append(row)
+        for i in range(len(temp_daily)):
+            daily_avg_sheet.append([
+                data['plate_number'],
+                temp_daily[i]['date'],
+                round(temp_daily[i]['average'], 2),
+                round(temp_daily[i]['minimum'], 2),
+                round(temp_daily[i]['maximum'], 2),
+                round(humidity_daily[i]['average'], 2) if i < len(humidity_daily) else None,
+                round(humidity_daily[i]['minimum'], 2) if i < len(humidity_daily) else None,
+                round(humidity_daily[i]['maximum'], 2) if i < len(humidity_daily) else None
+            ])
     
-    # Apply borders and alignment
-    for sheet in [combined_5min_sheet, combined_daily_avg_sheet]:
-        for row_cells in sheet.iter_rows(min_row=1, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
-            for cell in row_cells:
+    # Remove default sheet if it exists
+    if 'Sheet' in workbook.sheetnames:
+        workbook.remove(workbook['Sheet'])
+    
+    # Apply formatting to all sheets
+    for sheet in workbook.sheetnames:
+        ws = workbook[sheet]
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+            for cell in row:
                 cell.border = border
                 cell.alignment = alignment
         
         # Adjust column widths
-        for col in range(1, sheet.max_column + 1):
+        for col in ws.columns:
             max_length = 0
-            for row in sheet.iter_rows(min_col=col, max_col=col):
-                for cell in row:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
             adjusted_width = (max_length + 2)
-            sheet.column_dimensions[chr(64 + col)].width = adjusted_width
+            ws.column_dimensions[col[0].column_letter].width = adjusted_width
     
-    # Save to Excel
     workbook.save(output_file)
     return output_file
 
-def send_email_with_attachment(sender_email, sender_password, receiver_emails, 
-                             subject, message, attachment_path):
+
+
+def send_email_with_attachment(sender_email, sender_password, receiver_email, 
+                                subject, message, attachment_path):
     """
-    Send an email with an Excel file attachment to multiple recipients.
+    Send an email with an Excel file attachment.
     
     :param sender_email: Sender's email address
     :param sender_password: Sender's email password
-    :param receiver_emails: List of recipient email addresses or a single email address
+    :param receiver_email: Recipient's email address
     :param subject: Email subject
     :param message: Email body text
     :param attachment_path: Path to the Excel file to attach
     """
-    # Convert single email to list if necessary
-    if isinstance(receiver_emails, str):
-        receiver_emails = [receiver_emails]
-    
-    # Remove any empty strings and whitespace
-    receiver_emails = [email.strip() for email in receiver_emails if email.strip()]
-    
-    if not receiver_emails:
-        print("No valid receiver emails provided")
-        return False
-    
     try:
         # Create email message
         email_message = MIMEMultipart()
         email_message['From'] = sender_email
-        email_message['To'] = ', '.join(receiver_emails)  # Join all recipients with commas
+        email_message['To'] = receiver_email
         email_message['Subject'] = subject
 
         # Attach message body
@@ -314,75 +261,51 @@ def send_email_with_attachment(sender_email, sender_password, receiver_emails,
             server.login(sender_email, sender_password)
             server.send_message(email_message)
         
-        print(f"Email sent successfully to: {', '.join(receiver_emails)}")
+        print(f"Email sent successfully to {receiver_email}")
         return True
     except Exception as e:
         print(f"Error sending email: {e}")
         return False
 
 def main():
-    """
-    Main function to automate GPS sensor data report generation and email.
-    """
-    # Update required keys to check for RECEIVER_EMAILS instead of RECEIVER_EMAIL
-    required_keys = ['GPS_API_KEY', 'GPS_DEVICE_ID', 'SENDER_EMAIL', 'SENDER_PASSWORD', 'RECEIVER_EMAILS']
-    for key in required_keys:
-        if not CONFIG[key]:
-            print(f"Error: {key} environment variable is not set.")
-            sys.exit(1)
-
-    # Additional check for empty receiver emails list
-    if not any(CONFIG['RECEIVER_EMAILS']):
-        print("Error: No valid receiver email addresses provided.")
-        sys.exit(1)
-    
-    # Determine date range with 8-hour subtraction
+    """Main function to process multiple vehicles' data."""
     end_date = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0) - timedelta(days=1)
     start_date = (end_date - timedelta(days=1)).strftime('%Y-%m-%d %H:%M')
     end_date = end_date.strftime('%Y-%m-%d %H:%M')
     
-    # Construct API URL
-    api_url = construct_api_url(
-        CONFIG['GPS_DEVICE_ID'], 
-        start_date, 
-        end_date, 
-        CONFIG['GPS_API_KEY']
-    )
+    vehicles_data = {}
     
-    # Fetch GPS data
-    json_data = fetch_gps_data(api_url)
+    # Fetch and process data for each vehicle
+    for device_id in CONFIG['VEHICLES'].keys():
+        sensor_data = fetch_vehicle_data(
+            device_id,
+            start_date,
+            end_date,
+            CONFIG['GPS_API_KEY']
+        )
+        
+        if sensor_data:
+            processed_data = {
+                'plate_number': sensor_data['plate_number'],
+                'refrigerator_temp': process_sensor_data(sensor_data['refrigerator_temp']),
+                'humidity': process_sensor_data(sensor_data['humidity'])
+            }
+            vehicles_data[device_id] = processed_data
     
-    if not json_data:
-        print("No GPS data retrieved.")
+    if not vehicles_data:
+        print("No data retrieved for any vehicle.")
         return
     
-    # Parse sensor data
-    sensor_data = parse_gps_temp_humidity(json_data)
-    
-    # Process temperature and humidity data
-    refrigerator_temp_data = process_sensor_data(sensor_data['refrigerator_temp'])
-    humidity_data = process_sensor_data(sensor_data['humidity'])
-    
-    # Calculate daily averages
-    refrigerator_temp_daily_avg = calculate_daily_averages(refrigerator_temp_data)
-    humidity_daily_avg = calculate_daily_averages(humidity_data)
-    
     # Generate Excel report
-    report_file = export_to_excel(
-        refrigerator_temp_data, 
-        humidity_data, 
-        refrigerator_temp_daily_avg, 
-        humidity_daily_avg,
-        sensor_data['plate_numbers']
-    )
+    report_file = export_to_excel(vehicles_data)
     
-    # Send email with report to all recipients
+    # Send email with report
     send_email_with_attachment(
-        CONFIG['SENDER_EMAIL'], 
-        CONFIG['SENDER_PASSWORD'], 
-        CONFIG['RECEIVER_EMAILS'], 
-        f"GPS Sensor Report - {end_date}", 
-        f"Attached is the GPS sensor report from {start_date} to {end_date}.", 
+        CONFIG['SENDER_EMAIL'],
+        CONFIG['SENDER_PASSWORD'],
+        CONFIG['RECEIVER_EMAIL'],
+        f"Multi-Vehicle GPS Sensor Report - {end_date}",
+        f"Attached is the GPS sensor report for all vehicles from {start_date} to {end_date}.",
         report_file
     )
 
