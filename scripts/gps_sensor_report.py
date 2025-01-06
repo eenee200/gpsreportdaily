@@ -243,33 +243,33 @@ def send_email_with_attachment(sender_email, sender_password, receiver_emails,
     results = {}
     
     try:
-        # Create email message template
-        email_message = MIMEMultipart()
-        email_message['From'] = sender_email
-        email_message['Subject'] = subject
-
-        # Attach message body
-        email_message.attach(MIMEText(message, 'plain'))
-
-        # Attach Excel file
-        with open(attachment_path, 'rb') as file:
-            part = MIMEApplication(file.read(), Name=os.path.basename(attachment_path))
-            part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
-            email_message.attach(part)
-
-        # Connect to SMTP server
+        # Connect to SMTP server once for all emails
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(sender_email, sender_password)
+            
+            # Read attachment file once
+            with open(attachment_path, 'rb') as file:
+                attachment_data = file.read()
             
             # Send to each recipient individually
             for receiver_email in receiver_emails:
                 try:
                     # Create a new message for each recipient
-                    msg = email_message.copy()
-                    msg['To'] = receiver_email.strip()  # Remove any whitespace
+                    email_message = MIMEMultipart()
+                    email_message['From'] = sender_email
+                    email_message['To'] = receiver_email.strip()
+                    email_message['Subject'] = subject
+
+                    # Attach message body
+                    email_message.attach(MIMEText(message, 'plain'))
+
+                    # Attach Excel file
+                    part = MIMEApplication(attachment_data, Name=os.path.basename(attachment_path))
+                    part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
+                    email_message.attach(part)
                     
-                    server.send_message(msg)
+                    server.send_message(email_message)
                     print(f"Email sent successfully to {receiver_email}")
                     results[receiver_email] = True
                 except Exception as e:
