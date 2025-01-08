@@ -282,14 +282,14 @@ def export_to_excel(vehicles_data, output_file='gps_sensor_analysis.xlsx'):
 
 
 
-def send_email_with_attachment(sender_email, sender_password, receiver_email, 
-                                subject, message, attachment_path):
+def send_email_with_attachment(sender_email, sender_password, receiver_emails, 
+                             subject, message, attachment_path):
     """
-    Send an email with an Excel file attachment.
+    Send an email with an Excel file attachment to multiple recipients.
     
     :param sender_email: Sender's email address
     :param sender_password: Sender's email password
-    :param receiver_email: Recipient's email address
+    :param receiver_emails: List of recipient email addresses
     :param subject: Email subject
     :param message: Email body text
     :param attachment_path: Path to the Excel file to attach
@@ -298,7 +298,7 @@ def send_email_with_attachment(sender_email, sender_password, receiver_email,
         # Create email message
         email_message = MIMEMultipart()
         email_message['From'] = sender_email
-        email_message['To'] = receiver_email
+        email_message['To'] = ', '.join(receiver_emails)  # Join all recipients with commas
         email_message['Subject'] = subject
 
         # Attach message body
@@ -316,7 +316,7 @@ def send_email_with_attachment(sender_email, sender_password, receiver_email,
             server.login(sender_email, sender_password)
             server.send_message(email_message)
         
-        print(f"Email sent successfully to {receiver_email}")
+        print(f"Email sent successfully to {', '.join(receiver_emails)}")
         return True
     except Exception as e:
         print(f"Error sending email: {e}")
@@ -378,11 +378,11 @@ def main():
         # Generate Excel report
         report_file = export_to_excel(vehicles_data)
         
-        # Send email with report
+        # Send email with report to all recipients
         send_email_with_attachment(
             CONFIG['SENDER_EMAIL'],
             CONFIG['SENDER_PASSWORD'],
-            CONFIG['RECEIVER_EMAIL'],
+            CONFIG['RECEIVER_EMAILS'],  # Now passing the list of all recipients
             f"Multi-Vehicle GPS Sensor Report - {end_date}",
             f"Attached is the GPS sensor report for all vehicles from {start_date} to {end_date}.",
             report_file
