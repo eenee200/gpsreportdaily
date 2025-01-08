@@ -98,17 +98,46 @@ def fetch_vehicle_data(device_id, start_date, end_date, api_key):
         return None
 
 def process_sensor_data(sensor_data, interval_minutes=5):
-    """Process sensor data into specified minute intervals."""
-    df = pd.DataFrame(sensor_data)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df['interval_timestamp'] = df['timestamp'].dt.floor(f'{interval_minutes}min')
+    """
+    Process sensor data into specified minute intervals.
+    Returns empty list if no data is available.
+    """
+    # Check for empty or None input
+    if not sensor_data:
+        print("Warning: Empty sensor data received")
+        return []
     
-    grouped_data = df.groupby('interval_timestamp').agg({
-        'value': ['mean', 'min', 'max', 'count']
-    }).reset_index()
-    
-    grouped_data.columns = ['timestamp', 'mean', 'min', 'max', 'count']
-    return grouped_data.to_dict('records')
+    try:
+        # Create DataFrame
+        df = pd.DataFrame(sensor_data)
+        
+        # Check if required columns exist
+        if 'timestamp' not in df.columns or 'value' not in df.columns:
+            print(f"Warning: Missing required columns. Available columns: {df.columns.tolist()}")
+            return []
+            
+        # Convert timestamp to datetime and create intervals
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['interval_timestamp'] = df['timestamp'].dt.floor(f'{interval_minutes}min')
+        
+        # Group by interval and calculate statistics
+        grouped_data = df.groupby('interval_timestamp').agg({
+            'value': ['mean', 'min', 'max', 'count']
+        }).reset_index()
+        
+        # Flatten column names
+        grouped_data.columns = ['timestamp', 'mean', 'min', 'max', 'count']
+        
+        # Round numeric values
+        for col in ['mean', 'min', 'max']:
+            grouped_data[col] = grouped_data[col].round(2)
+        
+        return grouped_data.to_dict('records')
+        
+    except Exception as e:
+        print(f"Error processing sensor data: {e}")
+        return []
+
 
 def calculate_daily_averages(sensor_data):
     """Calculate daily averages for sensor data."""
@@ -154,23 +183,29 @@ def export_to_excel(vehicles_data, output_file='gps_sensor_analysis.xlsx'):
         # Headers
         sheet.append(['Plate Number', 'Timestamp', 'Refrigerator Temp', 'Humidity'])
         
-        # Combine temperature and humidity data
+        # Check if data exists
         temp_data = data['refrigerator_temp']
         humidity_data = data['humidity']
-        max_length = max(len(temp_data), len(humidity_data))
         
-        for i in range(max_length):
-            temp_value = round(temp_data[i]['mean'], 2) if i < len(temp_data) else None
-            humidity_value = round(humidity_data[i]['mean'], 2) if i < len(humidity_data) else None
-            timestamp = (temp_data[i]['timestamp'] if i < len(temp_data) 
-                        else humidity_data[i]['timestamp'])
+        if not temp_data and not humidity_data:
+            # If no data available, add a message
+            sheet.append([data['plate_number'], 'No data available', '-', '-'])
+        else:
+            # Combine temperature and humidity data
+            max_length = max(len(temp_data), len(humidity_data))
             
-            sheet.append([
-                data['plate_number'] if i == 0 else '',
-                timestamp,
-                temp_value,
-                humidity_value
-            ])
+            for i in range(max_length):
+                temp_value = round(temp_data[i]['mean'], 2) if i < len(temp_data) else '-'
+                humidity_value = round(humidity_data[i]['mean'], 2) if i < len(humidity_data) else '-'
+                timestamp = (temp_data[i]['timestamp'] if i < len(temp_data) 
+                            else humidity_data[i]['timestamp'])
+                
+                sheet.append([
+                    data['plate_number'] if i == 0 else '',
+                    timestamp,
+                    temp_value,
+                    humidity_value
+                ])
     
     # Create daily averages sheet
     daily_avg_sheet = workbook.create_sheet(title="Daily_Averages")
@@ -183,20 +218,40 @@ def export_to_excel(vehicles_data, output_file='gps_sensor_analysis.xlsx'):
     
     # Add daily averages for each vehicle
     for vehicle_id, data in vehicles_data.items():
-        temp_daily = calculate_daily_averages(data['refrigerator_temp'])
-        humidity_daily = calculate_daily_averages(data['humidity'])
+        temp_data = data['refrigerator_temp']
+        humidity_data = data['humidity']
         
-        for i in range(len(temp_daily)):
+        if not temp_data and not humidity_data:
+            # If no data available, add a message
             daily_avg_sheet.append([
                 data['plate_number'],
-                temp_daily[i]['date'],
-                round(temp_daily[i]['average'], 2),
-                round(temp_daily[i]['minimum'], 2),
-                round(temp_daily[i]['maximum'], 2),
-                round(humidity_daily[i]['average'], 2) if i < len(humidity_daily) else None,
-                round(humidity_daily[i]['minimum'], 2) if i < len(humidity_daily) else None,
-                round(humidity_daily[i]['maximum'], 2) if i < len(humidity_daily) else None
+                datetime.now().strftime('%Y-%m-%d'),
+                'No data', 'No data', 'No data',
+                'No data', 'No data', 'No data'
             ])
+        else:
+            temp_daily = calculate_daily_averages(temp_data) if temp_data else []
+            humidity_daily = calculate_daily_averages(humidity_data) if humidity_data else []
+            
+            if not temp_daily and not humidity_daily:
+                daily_avg_sheet.append([
+                    data['plate_number'],
+                    datetime.now().strftime('%Y-%m-%d'),
+                    'No data', 'No data', 'No data',
+                    'No data', 'No data', 'No data'
+                ])
+            else:
+                for i in range(len(temp_daily)):
+                    daily_avg_sheet.append([
+                        data['plate_number'],
+                        temp_daily[i]['date'],
+                        round(temp_daily[i]['average'], 2),
+                        round(temp_daily[i]['minimum'], 2),
+                        round(temp_daily[i]['maximum'], 2),
+                        round(humidity_daily[i]['average'], 2) if i < len(humidity_daily) else 'No data',
+                        round(humidity_daily[i]['minimum'], 2) if i < len(humidity_daily) else 'No data',
+                        round(humidity_daily[i]['maximum'], 2) if i < len(humidity_daily) else 'No data'
+                    ])
     
     # Remove default sheet if it exists
     if 'Sheet' in workbook.sheetnames:
@@ -227,107 +282,114 @@ def export_to_excel(vehicles_data, output_file='gps_sensor_analysis.xlsx'):
 
 
 
-def send_email_with_attachment(sender_email, sender_password, receiver_emails, 
-                             subject, message, attachment_path):
+def send_email_with_attachment(sender_email, sender_password, receiver_email, 
+                                subject, message, attachment_path):
     """
-    Send an email with an Excel file attachment to multiple recipients.
+    Send an email with an Excel file attachment.
     
     :param sender_email: Sender's email address
     :param sender_password: Sender's email password
-    :param receiver_emails: List of recipient email addresses
+    :param receiver_email: Recipient's email address
     :param subject: Email subject
     :param message: Email body text
     :param attachment_path: Path to the Excel file to attach
-    :return: Dictionary with success status for each recipient
     """
-    results = {}
-    
     try:
-        # Connect to SMTP server once for all emails
+        # Create email message
+        email_message = MIMEMultipart()
+        email_message['From'] = sender_email
+        email_message['To'] = receiver_email
+        email_message['Subject'] = subject
+
+        # Attach message body
+        email_message.attach(MIMEText(message, 'plain'))
+
+        # Attach Excel file
+        with open(attachment_path, 'rb') as file:
+            part = MIMEApplication(file.read(), Name=os.path.basename(attachment_path))
+            part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
+            email_message.attach(part)
+
+        # Send email
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(sender_email, sender_password)
-            
-            # Read attachment file once
-            with open(attachment_path, 'rb') as file:
-                attachment_data = file.read()
-            
-            # Send to each recipient individually
-            for receiver_email in receiver_emails:
-                try:
-                    # Create a new message for each recipient
-                    email_message = MIMEMultipart()
-                    email_message['From'] = sender_email
-                    email_message['To'] = receiver_email.strip()
-                    email_message['Subject'] = subject
-
-                    # Attach message body
-                    email_message.attach(MIMEText(message, 'plain'))
-
-                    # Attach Excel file
-                    part = MIMEApplication(attachment_data, Name=os.path.basename(attachment_path))
-                    part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
-                    email_message.attach(part)
-                    
-                    server.send_message(email_message)
-                    print(f"Email sent successfully to {receiver_email}")
-                    results[receiver_email] = True
-                except Exception as e:
-                    print(f"Error sending email to {receiver_email}: {e}")
-                    results[receiver_email] = False
+            server.send_message(email_message)
         
-        return results
+        print(f"Email sent successfully to {receiver_email}")
+        return True
     except Exception as e:
-        print(f"Error in email setup: {e}")
-        return {email: False for email in receiver_emails}
+        print(f"Error sending email: {e}")
+        return False
 
 def main():
-    """Main function to process multiple vehicles' data and send to multiple recipients."""
-    end_date = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0) - timedelta(days=1)
-    start_date = (end_date - timedelta(days=1)).strftime('%Y-%m-%d %H:%M')
-    end_date = end_date.strftime('%Y-%m-%d %H:%M')
-    
-    vehicles_data = {}
-    
-    # Fetch and process data for each vehicle
-    for device_id in CONFIG['VEHICLES'].keys():
-        sensor_data = fetch_vehicle_data(
-            device_id,
-            start_date,
-            end_date,
-            CONFIG['GPS_API_KEY']
-        )
+    """Main function to process multiple vehicles' data."""
+    try:
+        end_date = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        start_date = (end_date - timedelta(days=1)).strftime('%Y-%m-%d %H:%M')
+        end_date = end_date.strftime('%Y-%m-%d %H:%M')
         
-        if sensor_data:
-            processed_data = {
-                'plate_number': sensor_data['plate_number'],
-                'refrigerator_temp': process_sensor_data(sensor_data['refrigerator_temp']),
-                'humidity': process_sensor_data(sensor_data['humidity'])
-            }
-            vehicles_data[device_id] = processed_data
+        vehicles_data = {}
+        
+        # Fetch and process data for each vehicle
+        for device_id in CONFIG['VEHICLES'].keys():
+            try:
+                print(f"Processing device {device_id} ({CONFIG['VEHICLES'][device_id]})")
+                
+                sensor_data = fetch_vehicle_data(
+                    device_id,
+                    start_date,
+                    end_date,
+                    CONFIG['GPS_API_KEY']
+                )
+                
+                # Initialize data structure even if no sensor data
+                processed_data = {
+                    'plate_number': CONFIG['VEHICLES'][device_id],
+                    'refrigerator_temp': [],
+                    'humidity': []
+                }
+                
+                # Process sensor data if available
+                if sensor_data and isinstance(sensor_data, dict):
+                    temp_data = process_sensor_data(sensor_data.get('refrigerator_temp', []))
+                    humidity_data = process_sensor_data(sensor_data.get('humidity', []))
+                    
+                    if temp_data or humidity_data:
+                        processed_data['refrigerator_temp'] = temp_data
+                        processed_data['humidity'] = humidity_data
+                
+                vehicles_data[device_id] = processed_data
+                
+            except Exception as e:
+                print(f"Error processing device {device_id}: {e}")
+                # Add empty data structure for failed device
+                vehicles_data[device_id] = {
+                    'plate_number': CONFIG['VEHICLES'][device_id],
+                    'refrigerator_temp': [],
+                    'humidity': []
+                }
+                continue
+        
+        if not vehicles_data:
+            print("No data retrieved for any vehicle.")
+            return
+        
+        # Generate Excel report
+        report_file = export_to_excel(vehicles_data)
+        
+        # Send email with report
+        send_email_with_attachment(
+            CONFIG['SENDER_EMAIL'],
+            CONFIG['SENDER_PASSWORD'],
+            CONFIG['RECEIVER_EMAIL'],
+            f"Multi-Vehicle GPS Sensor Report - {end_date}",
+            f"Attached is the GPS sensor report for all vehicles from {start_date} to {end_date}.",
+            report_file
+        )
     
-    if not vehicles_data:
-        print("No data retrieved for any vehicle.")
-        return
-    
-    # Generate Excel report
-    report_file = export_to_excel(vehicles_data)
-    
-    # Send email with report to multiple recipients
-    results = send_email_with_attachment(
-        CONFIG['SENDER_EMAIL'],
-        CONFIG['SENDER_PASSWORD'],
-        CONFIG['RECEIVER_EMAILS'],
-        f"Multi-Vehicle GPS Sensor Report - {end_date}",
-        f"Attached is the GPS sensor report for all vehicles from {start_date} to {end_date}.",
-        report_file
-    )
-    
-    # Print summary of email sending results
-    print("\nEmail Sending Summary:")
-    for email, success in results.items():
-        status = "Success" if success else "Failed"
-        print(f"{email}: {status}")
+    except Exception as e:
+        print(f"Error in main function: {e}")
 
 if __name__ == "__main__":
     main()
