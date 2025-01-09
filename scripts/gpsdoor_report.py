@@ -189,7 +189,7 @@ def process_door_events(door_data, storage_temp_data, bag_temp_data):
 
 def export_to_excel(vehicles_data, output_file='temperature_analysis.xlsx'):
     """
-    Export analyzed data to Excel with support for multiple vehicles
+    Export analyzed data to Excel with support for multiple vehicles, including blank entries for vehicles with no data
     """
     workbook = Workbook()
     sheet = workbook.active
@@ -223,16 +223,46 @@ def export_to_excel(vehicles_data, output_file='temperature_analysis.xlsx'):
         for date_events in vehicle_data['door_events'].values():
             total_events += len(date_events)
     
+    # Get all unique dates across all vehicles
+    all_dates = set()
+    for vehicle_data in vehicles_data:
+        dates = set()
+        dates.update(vehicle_data['storage_temps'].keys())
+        dates.update(vehicle_data['bag_temps'].keys())
+        dates.update(vehicle_data['door_events'].keys())
+        all_dates.update(dates)
+    
+    # If no dates found, add current date
+    if not all_dates:
+        all_dates.add(datetime.now().date())
+    
+    # Sort dates
+    all_dates = sorted(all_dates)
+    
     # Process each vehicle's data
     for vehicle_data in vehicles_data:
         plate_number = vehicle_data['plate_number']
-        storage_temps = vehicle_data['storage_temps']
-        bag_temps = vehicle_data['bag_temps']
-        door_events = vehicle_data['door_events']
+        storage_temps = vehicle_data.get('storage_temps', {})
+        bag_temps = vehicle_data.get('bag_temps', {})
+        door_events = vehicle_data.get('door_events', {})
+        
+        # Add at least one row for vehicles with no data
+        if not storage_temps and not bag_temps and not door_events:
+            row = [
+                plate_number,  # Plate number
+                all_dates[0].strftime('%Y/%m/%d'),  # Use first date
+                '', '', '',  # Empty storage temps
+                '', '', '',  # Empty bag temps
+                '0', '',  # No door events
+                '', '', '',  # Empty door open data
+                '', '', '',  # Empty door close data
+                ''  # Empty duration
+            ]
+            sheet.append(row)
+            start_row += 1
+            continue
         
         is_first_date = True
-        all_dates = sorted(set(storage_temps.keys()) | set(bag_temps.keys()) | set(door_events.keys()))
-        
         for date in all_dates:
             storage_data = storage_temps.get(date, {})
             bag_data = bag_temps.get(date, {})
@@ -241,8 +271,8 @@ def export_to_excel(vehicles_data, output_file='temperature_analysis.xlsx'):
             base_row = [
                 plate_number if is_first_date else '',
                 date.strftime('%Y/%m/%d'),
-                storage_data.get(10, 0), storage_data.get(12, 0), storage_data.get(15, 0),
-                bag_data.get(10, 0), bag_data.get(12, 0), bag_data.get(15, 0),
+                storage_data.get(10, ''), storage_data.get(12, ''), storage_data.get(15, ''),
+                bag_data.get(10, ''), bag_data.get(12, ''), bag_data.get(15, ''),
             ]
             
             if daily_events:
