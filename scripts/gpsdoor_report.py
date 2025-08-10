@@ -16,12 +16,14 @@ RECEIVER_EMAILS="uuganbileg@tttools.mn,lhagvabayar.a@monospharmatrade.mn,undrakh
 CONFIG = {
     'GPS_API_KEY': os.environ.get('GPS_API_KEY'),
     'VEHICLES': {
-       '866069068751245': '2514УАС ОН',
+       '866069068751245': '5476УКК ОН',
         '867747074781160': '3049УАС МУБ',
         '866069068899358': '6461УНЯ ОН',
         '866069068945011': '7107УБГ ОН',
         '866069064383431': '7228УКР МУБ',
-        '867747074781186': '7228УКС МУБ'
+        '867747074781186': '7228УКС МУБ',
+        '867747074781053': '7538УАМ',
+        '868373075447468': '7204УЕУ'
     },
     'SENDER_EMAIL': os.environ.get('SENDER_EMAIL'),
     'SENDER_PASSWORD': os.environ.get('SENDER_PASSWORD'),
