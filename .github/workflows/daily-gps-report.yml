@@ -1,5 +1,4 @@
 name: Daily GPS Sensor Report
-
 on:
   schedule:
     - cron: '0 0 * * *'   # 00:00 UTC+8 = 16:00 UTC previous day
@@ -7,7 +6,13 @@ on:
     branches: 
       - main
       - master
-
+  workflow_dispatch:  # Enables manual trigger
+    inputs:
+      reason:
+        description: 'Reason for manual run (optional)'
+        required: false
+        default: 'Manual trigger'
+        
 jobs:
   generate-report:
     runs-on: ubuntu-latest
